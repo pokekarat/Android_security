@@ -80,7 +80,7 @@ test_success() {
 		error_string=$1
 		error_string="${error_string:-run command}"
 		bad_msg 'Failed to $1; failing back to the shell...'
-		run_shell
+		ash
 	fi
 }
 
@@ -94,6 +94,10 @@ good_msg() {
 	[ "$2" != 1 ] && echo -e "${GOOD}>>${NORMAL}${BOLD} ${msg_string} ${NORMAL}"
 }
 
+bad_msg() {
+    echo -e "${tag_bad}!!${tag_normal}${tag_bold} ${1:-...}${tag_normal}"
+}
+
 warn_msg() {
 	msg_string=$1
 	msg_string="${msg_string:-...}"
@@ -102,9 +106,7 @@ warn_msg() {
 
 # Setup the loopback mounts
 verifyroot() {
-    local imgdev="$1"
 
-    if [ -n "${param_cdroot_hash}" ]; then
         good_msg 'Setting up DM-Verity for filesystem image'
 
         # Load required modules (no module autoloading)
@@ -112,28 +114,11 @@ verifyroot() {
         modprobe -b algif_hash
         modprobe -b sha1_generic
 
-        # > file redirects stdout to file
-        # 1> file redirects stdout to file
-        # 2> file redirects stderr to file
-        # &> file redirects stdout and stderr to file
-
-        # /dev/null is the null device it takes any input you want and throws it away. 
-        # It can be used to suppress any output.
-
-        [ "${param_cdroot_hash%:*}" -gt 0 -a "${param_cdroot_hash%:*}" != "${param_cdroot_hash}" ] 2>/dev/null
-        test_success 'parse DM-Verity hash descriptor'
-
-        sfsbytes=`blockdev --getsize64 ${imgdev}`
-        sfsoffset=$((sfsbytes - ${param_cdroot_hash%:*} * 4096))
-        hashdesc=`veritysetup dump --hash-offset=${sfsoffset} ${imgdev} | sed -n 's/^.*:[[:blank:]]*//; 3p; 5,7p' | tr '\n' :`
-
-        [ "${hashdesc}" = 1:4096:4096:sha256: ]
+        hashdesc=`veritysetup dump --hash-offset=576720896 /mnt/$SRC/system | sed -n 's/^.*:[[:blank:]]*//; 3p; 5,7p' | tr '\n' :`
+        [ "${hashdesc}" = 1:4096:4096:sha256: ] 
         test_success 'verify DM-Verity superblock'
         
-        # Activate activity device named rootfs ${param_cdroot_hash} is a root hash
-        # Note - if device is corrupted, kernel mapping is created but will report failure:
-        # Verity device detected corruption after activation.
-        veritysetup create --hash-offset=${sfsoffset} rootfs ${imgdev} ${imgdev} "${param_cdroot_hash#*:}"
+        veritysetup create --hash-offset=576720896 rootfs /mnt/$SRC/system /mnt/$SRC/system 61cb4769799bc192990f0841b0e49d35411f7adb2abec2e6d0185ae573d169
         test_success 'setup DM-Verity mapping'
 
         veritysetup status rootfs | grep -qs '^[[:blank:]]*status:[[:blank:]]*verified$'
@@ -143,10 +128,8 @@ verifyroot() {
         modprobe -r sha1_generic
         modprobe -r algif_hash
 
-        rootdev=/dev/mapper/rootfs
-
-        mount -o loop,noatime /mnt/$SRC/system.sfs /sfs
-        mount -o loop,noatime /sfs/system.img system
+        remount_rw
+        mount -o loop,noatime /mnt/$SRC/system.img system
     else
         warn_msg 'Skipping filesystem image verification'        
     fi
@@ -177,31 +160,10 @@ check_root()
         return 1
     fi
     if [ -e /mnt/$SRC/system.sfs ]; then
-        
-        # Begin Ekarat
-        # Set up DM-Verity (sets rootdev=/dev/mapper/...)
-        sboot=/stage/boot
-
-        # Let 'notoram' override 'toram' enforcement for CDs
-        # ${param_loop:=/liberte/boot/root-x86.sfs}
-        rootimg=${sboot}"${param_loop}"
-        if [ -n "${param_toram}" -a -z "${param_notoram}" ]; then
-            good_msg 'Copying filesystem image to RAM ...'
-            rootimgram=${srwroot}/cache/root.sfs
-
-            mkdir -m 700  ${srwroot}/cache
-            cp "${rootimg}" ${rootimgram} || rm ${rootimgram}
-            rootimg=${rootimgram}
-        fi
-
-        rootdev=/dev/loop0
-        modprobe -b loop
-        losetup -r ${rootdev} "${rootimg}"
-        verifyroot ${rootdev}
-        # End Ekarat
-        
-        
+        mount -o loop,noatime /mnt/$SRC/system.sfs /sfs
+        mount -o loop,noatime /sfs/system.img system
     elif [ -e /mnt/$SRC/system.img ]; then
+	verifyroot
         remount_rw
         mount -o loop,noatime /mnt/$SRC/system.img system
     elif [ -d /mnt/$SRC/system ]; then
@@ -336,3 +298,6 @@ while :; do
     echo
     debug_shell fatal-err
 done
+
+# resource
+# https://github.com/mkdesu/liberte/blob/master/src/root/initrd/init.scripts
