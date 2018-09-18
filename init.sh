@@ -114,11 +114,11 @@ verifyroot() {
         modprobe -b algif_hash
         modprobe -b sha1_generic
 
-        hashdesc=`veritysetup dump --hash-offset=576720896 /mnt/$SRC/system | sed -n 's/^.*:[[:blank:]]*//; 3p; 5,7p' | tr '\n' :`
+        hashdesc=`veritysetup dump --hash-offset=576720896 /mnt/$SRC/system.img | sed -n 's/^.*:[[:blank:]]*//; 3p; 5,7p' | tr '\n' :`
         [ "${hashdesc}" = 1:4096:4096:sha256: ] 
         test_success 'verify DM-Verity superblock'
         
-        veritysetup create --hash-offset=576720896 rootfs /mnt/$SRC/system /mnt/$SRC/system 61cb4769799bc192990f0841b0e49d35411f7adb2abec2e6d0185ae573d169
+        veritysetup create --hash-offset=576720896 rootfs /mnt/$SRC/system.img /mnt/$SRC/system.img 61cb4769799bc192990f0841b0e49d35411f7adb2abec2e6d0185ae573d169
         test_success 'setup DM-Verity mapping'
 
         veritysetup status rootfs | grep -qs '^[[:blank:]]*status:[[:blank:]]*verified$'
@@ -127,12 +127,6 @@ verifyroot() {
         # Remove modules used only for veritysetup's crypto backend init
         modprobe -r sha1_generic
         modprobe -r algif_hash
-
-        remount_rw
-        mount -o loop,noatime /mnt/$SRC/system.img system
-    else
-        warn_msg 'Skipping filesystem image verification'        
-    fi
 }
 
 check_root()
